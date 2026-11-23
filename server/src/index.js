@@ -20,15 +20,42 @@ import { stopAllScans } from "./telegram/scan.js";
 
 const app = express();
 
+// پیشوند زمان (ISO) برای همه‌ی لاگ‌ها؛ در app.log هیچ timestamp دیگری اضافه نمی‌شود
+for (const level of ["log", "info", "warn", "error"]) {
+  const original = console[level].bind(console);
+  console[level] = (...args) => original(`[${new Date().toISOString()}]`, ...args);
+}
+
 app.use(cors());
 app.use(express.json({ limit: "25mb" }));
 
-// لاگ سبک درخواست‌های API (برای عیب‌یابی مسیر/تایم‌اوت)
+// لاگ دقیق درخواست‌های API (برای عیب‌یابی مسیر/تایم‌اوت/قطع اتصال)
 app.use("/api", (req, res, next) => {
   const startedAt = Date.now();
+  const size = req.headers["content-length"] || 0;
+  console.log(`[api] → ${req.method} ${req.originalUrl} (${size}b) از ${req.ip}`);
+
   res.on("finish", () => {
-    console.log(`[api] ${req.method} ${req.originalUrl} → ${res.statusCode} (${Date.now() - startedAt}ms)`);
+    const ms = Date.now() - startedAt;
+    const line = `[api] ← ${req.method} ${req.originalUrl} ${res.statusCode} (${ms}ms)`;
+    if (res.statusCode >= 400) console.warn(`${line} ⚠`);
+    else if (ms > 3000) console.warn(`${line} [کند]`);
+    else console.log(line);
   });
+
+  // اگر اتصال قبل از ارسال پاسخ قطع شود (نشانه‌ی پروکسی/تایم‌اوت/کلاینت قطع‌کننده)
+  res.on("close", () => {
+    if (!res.writableEnded) {
+      console.warn(
+        `[api] ✂ اتصال پیش از پاسخ بسته شد: ${req.method} ${req.originalUrl} (${Date.now() - startedAt}ms)`
+      );
+    }
+  });
+
+  res.on("error", (err) => {
+    console.error(`[api] خطای پاسخ ${req.method} ${req.originalUrl}:`, err?.stack || err);
+  });
+
   next();
 });
 
@@ -77,16 +104,17 @@ if (fs.existsSync(clientDist)) {
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error("[api] خطای سرور:", err);
-  res.status(500).json({ error: err?.message || "خطای داخلی سرور" });
+  console.error(`[api] ❌ خطای سرور در ${req.method} ${req.originalUrl}:`, err?.stack || err);
+  const status = err?.status || err?.statusCode || 500;
+  res.status(status).json({ error: err?.message || "خطای داخلی سرور" });
 });
 
 // محافظ: یک خطای پرت‌شده (مثلاً از سوکت تلگرام) نباید کل سرور را از کار بیندازد
 process.on("unhandledRejection", (reason) => {
-  console.error("[process] unhandledRejection:", reason?.message || reason);
+  console.error("[process] unhandledRejection:", reason?.stack || reason);
 });
 process.on("uncaughtException", (err) => {
-  console.error("[process] uncaughtException:", err?.message || err);
+  console.error("[process] uncaughtException:", err?.stack || err);
 });
 
 resetRunningOrders();

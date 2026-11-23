@@ -1,11 +1,34 @@
 const BASE = "/api";
 
-async function request(path, { method = "GET", body } = {}) {
-  const res = await fetch(BASE + path, {
-    method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+// لاگ دقیق خطاهای سمت مرورگر (برای عیب‌یابی در کنسول DevTools)
+if (typeof window !== "undefined") {
+  window.addEventListener("unhandledrejection", (e) => {
+    console.error("[پنل] خطای مهارنشده (rejection):", e.reason);
   });
+  window.addEventListener("error", (e) => {
+    console.error(
+      "[پنل] خطای جاوااسکریپت:",
+      e.message,
+      `${e.filename}:${e.lineno}:${e.colno}`,
+      e.error
+    );
+  });
+}
+
+async function request(path, { method = "GET", body } = {}) {
+  const url = BASE + path;
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    // خطای شبکه: سرور در دسترس نیست یا اتصال قطع شده
+    console.error(`[api] شبکه: ${method} ${url} — اتصال برقرار نشد`, err);
+    throw new Error("ارتباط با سرور برقرار نشد (اتصال قطع شد یا سرور در دسترس نیست)");
+  }
   const text = await res.text();
   let data = null;
   if (text) {
@@ -15,7 +38,10 @@ async function request(path, { method = "GET", body } = {}) {
       data = text;
     }
   }
-  if (!res.ok) throw new Error((data && data.error) || `خطا (${res.status})`);
+  if (!res.ok) {
+    console.error(`[api] خطای پاسخ: ${method} ${url} → ${res.status} ${res.statusText}`, data);
+    throw new Error((data && data.error) || `خطا (${res.status})`);
+  }
   return data;
 }
 
