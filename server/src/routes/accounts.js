@@ -37,6 +37,28 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+/** اعتبارسنجی سشن‌ها در پس‌زمینه (بدون بلوکه کردن پاسخ HTTP، تا درخواست کوتاه و امن بماند) */
+function validateAccountsInBackground(accounts) {
+  mapLimit(accounts, CHECK_CONCURRENCY, async (account) => {
+    try {
+      const info = await withTimeout(checkAccount(account), CHECK_TIMEOUT_MS);
+      Object.assign(account, info);
+      account.status = "active";
+      account.statusMessage = null;
+    } catch (err) {
+      account.status = "error";
+      account.statusMessage = err.message;
+      // آزادسازی منابع سشن نامعتبر تا سرور با انبوه سشن‌های خراب اشباع نشود
+      dropClient(account.id);
+    }
+    account.lastCheckedAt = Date.now();
+    emit("account", publicAccount(account));
+    save();
+  }).catch((err) => {
+    console.error("[accounts] خطا در اعتبارسنجی پس‌زمینه:", err?.message || err);
+  });
+}
+
 router.get("/", (req, res) => {
   const db = getDb();
   res.json(db.accounts.map(publicAccount));
@@ -156,27 +178,12 @@ router.post("/import", async (req, res) => {
     created.push(account);
   }
   save();
-
-  // اعتبارسنجی با سقف همزمانی (برای تعداد زیاد سشن امن است)
-  await mapLimit(created, CHECK_CONCURRENCY, async (account) => {
-    try {
-      const info = await withTimeout(checkAccount(account), CHECK_TIMEOUT_MS);
-      Object.assign(account, info);
-      account.status = "active";
-      account.statusMessage = null;
-    } catch (err) {
-      account.status = "error";
-      account.statusMessage = err.message;
-      // آزادسازی منابع سشن نامعتبر تا سرور با انبوه سشن‌های خراب اشباع نشود
-      dropClient(account.id);
-    }
-    account.lastCheckedAt = Date.now();
-    emit("account", publicAccount(account));
-  });
-  save();
-
   addLog({ level: "info", message: `افزودن دسته‌ای سشن‌ها: ${created.length} اکانت اضافه شد` });
-  res.status(201).json({ created: created.map(publicAccount), skipped });
+
+  // پاسخ فوری می‌دهیم؛ اعتبارسنجی در پس‌زمینه انجام می‌شود تا درخواست HTTP
+  // طولانی نشود (جلوگیری از تایم‌اوت/۵۰۳ روی مسیر شبکه). نتایج زنده از طریق SSE می‌آید.
+  res.status(201).json({ created: created.map(publicAccount), skipped, validating: created.length });
+  validateAccountsInBackground(created);
 });
 
 /** بررسی سلامت همه اکانت‌ها */
