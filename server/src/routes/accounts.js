@@ -1,13 +1,40 @@
 import express from "express";
 import { getDb, nextId, save, publicAccount, addLog } from "../db.js";
-import { checkAccount, closeClient } from "../telegram/manager.js";
+import { checkAccount, closeClient, dropClient } from "../telegram/manager.js";
 import { startListener, stopListener, isListening } from "../telegram/listener.js";
 import { emit } from "../events.js";
 
 const router = express.Router();
 
+/** سقف اتصال‌های همزمان به تلگرام هنگام اعتبارسنجی (جلوگیری از پرش حافظه/سوکت) */
+const CHECK_CONCURRENCY = 4;
+/** حداکثر زمان اعتبارسنجی هر سشن (میلی‌ثانیه) تا یک سشن خراب کل درخواست را معلق نکند */
+const CHECK_TIMEOUT_MS = 30000;
+
 function cleanSession(value) {
   return String(value || "").trim();
+}
+
+/** اجرای موازی با سقف همزمانی */
+async function mapLimit(items, limit, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+function withTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("مهلت اعتبارسنجی سشن به پایان رسید")), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 router.get("/", (req, res) => {
@@ -130,22 +157,22 @@ router.post("/import", async (req, res) => {
   }
   save();
 
-  // اعتبارسنجی موازی
-  await Promise.all(
-    created.map(async (account) => {
-      try {
-        const info = await checkAccount(account);
-        Object.assign(account, info);
-        account.status = "active";
-        account.statusMessage = null;
-      } catch (err) {
-        account.status = "error";
-        account.statusMessage = err.message;
-      }
-      account.lastCheckedAt = Date.now();
-      emit("account", publicAccount(account));
-    }),
-  );
+  // اعتبارسنجی با سقف همزمانی (برای تعداد زیاد سشن امن است)
+  await mapLimit(created, CHECK_CONCURRENCY, async (account) => {
+    try {
+      const info = await withTimeout(checkAccount(account), CHECK_TIMEOUT_MS);
+      Object.assign(account, info);
+      account.status = "active";
+      account.statusMessage = null;
+    } catch (err) {
+      account.status = "error";
+      account.statusMessage = err.message;
+      // آزادسازی منابع سشن نامعتبر تا سرور با انبوه سشن‌های خراب اشباع نشود
+      dropClient(account.id);
+    }
+    account.lastCheckedAt = Date.now();
+    emit("account", publicAccount(account));
+  });
   save();
 
   addLog({ level: "info", message: `افزودن دسته‌ای سشن‌ها: ${created.length} اکانت اضافه شد` });
@@ -155,24 +182,22 @@ router.post("/import", async (req, res) => {
 /** بررسی سلامت همه اکانت‌ها */
 router.post("/check-all", async (req, res) => {
   const db = getDb();
-  await Promise.all(
-    db.accounts.map(async (account) => {
-      try {
-        const info = await checkAccount(account);
-        Object.assign(account, info);
-        if (account.status === "error" || account.status === "disabled") return;
-        account.status = "active";
-        account.statusMessage = null;
-      } catch (err) {
-        if (account.status !== "disabled") {
-          account.status = "error";
-          account.statusMessage = err.message;
-        }
+  await mapLimit(db.accounts, CHECK_CONCURRENCY, async (account) => {
+    try {
+      const info = await withTimeout(checkAccount(account), CHECK_TIMEOUT_MS);
+      Object.assign(account, info);
+      if (account.status === "error" || account.status === "disabled") return;
+      account.status = "active";
+      account.statusMessage = null;
+    } catch (err) {
+      if (account.status !== "disabled") {
+        account.status = "error";
+        account.statusMessage = err.message;
       }
-      account.lastCheckedAt = Date.now();
-      emit("account", publicAccount(account));
-    }),
-  );
+    }
+    account.lastCheckedAt = Date.now();
+    emit("account", publicAccount(account));
+  });
   save();
   res.json(db.accounts.map(publicAccount));
 });

@@ -72,6 +72,14 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err?.message || "خطای داخلی سرور" });
 });
 
+// محافظ: یک خطای پرت‌شده (مثلاً از سوکت تلگرام) نباید کل سرور را از کار بیندازد
+process.on("unhandledRejection", (reason) => {
+  console.error("[process] unhandledRejection:", reason?.message || reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[process] uncaughtException:", err?.message || err);
+});
+
 resetRunningOrders();
 startAccountRehabTicker();
 
