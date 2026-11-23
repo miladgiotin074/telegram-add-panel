@@ -1,0 +1,17 @@
+{
+  "name": "telegram-add-panel-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "big-integer": "^1.6.52",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "teleproto": "^1.233.0"
+  }
+}
