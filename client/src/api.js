@@ -86,6 +86,7 @@ export const api = {
     check: (id) => request(`/accounts/${id}/check`, { method: "POST" }),
     update: (id, body) => request(`/accounts/${id}`, { method: "PATCH", body }),
     remove: (id) => request(`/accounts/${id}`, { method: "DELETE" }),
+    removeInactive: () => request("/accounts/delete-inactive", { method: "POST" }),
     listen: (id, enabled) => request(`/accounts/${id}/listen`, { method: "POST", body: { enabled } }),
     login: {
       start: (body) => request("/accounts/login/start", { method: "POST", body }),

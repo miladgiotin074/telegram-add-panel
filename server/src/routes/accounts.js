@@ -209,6 +209,28 @@ router.post("/check-all", async (req, res) => {
   res.json(db.accounts.map(publicAccount));
 });
 
+/** حذف دسته‌جمعی اکانت‌های غیرفعال (وضعیت «خطا» و «غیرفعال») */
+router.post("/delete-inactive", async (req, res) => {
+  const db = getDb();
+  const statuses = ["error", "disabled"];
+  const victims = db.accounts.filter((a) => statuses.includes(a.status));
+
+  for (const account of victims) {
+    stopListener(account.id, { silent: true });
+    await closeClient(account.id);
+    emit("accountDeleted", { id: account.id });
+  }
+  for (let i = db.accounts.length - 1; i >= 0; i--) {
+    if (statuses.includes(db.accounts[i].status)) db.accounts.splice(i, 1);
+  }
+
+  save();
+  if (victims.length) {
+    addLog({ level: "warn", message: `حذف دسته‌جمعی: ${victims.length} اکانت غیرفعال پاک شد` });
+  }
+  res.json({ ok: true, deleted: victims.length });
+});
+
 router.patch("/:id", (req, res) => {
   const db = getDb();
   const account = db.accounts.find((a) => a.id === Number(req.params.id));

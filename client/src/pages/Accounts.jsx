@@ -28,6 +28,9 @@ export default function Accounts() {
   const [importText, setImportText] = useState("");
   const [busy, setBusy] = useState(false);
 
+  /** تعداد اکانت‌های غیرفعال (وضعیت «خطا» و «غیرفعال») برای دکمه‌ی حذف دسته‌جمعی */
+  const inactiveCount = accounts.filter((a) => a.status === "error" || a.status === "disabled").length;
+
   const load = async () => {
     try {
       setAccounts(await api.accounts.list());
@@ -100,6 +103,15 @@ export default function Accounts() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const removeInactive = () => {
+    if (!inactiveCount) return;
+    if (!confirm(`${inactiveCount} اکانت غیرفعال (خطا و غیرفعال) حذف شود؟ این کار قابل بازگشت نیست.`)) return;
+    act(async () => {
+      await api.accounts.removeInactive();
+      await load();
+    }, "اکانت‌های غیرفعال حذف شدند");
   };
 
   /* --------------------------- ویزارد ورود با شماره --------------------------- */
@@ -194,6 +206,9 @@ export default function Accounts() {
         <div className="flex flex-wrap gap-2">
           <button className="btn-ghost" onClick={checkAll} disabled={busy || accounts.length === 0}>
             بررسی همه
+          </button>
+          <button className="btn-ghost" onClick={removeInactive} disabled={busy || inactiveCount === 0}>
+            حذف غیرفعال‌ها{inactiveCount ? ` (${inactiveCount})` : ""}
           </button>
           <button className="btn-ghost" onClick={() => setShowImport(true)}>
             افزودن دسته‌ای
