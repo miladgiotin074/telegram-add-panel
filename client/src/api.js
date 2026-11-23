@@ -45,6 +45,31 @@ async function request(path, { method = "GET", body } = {}) {
   return data;
 }
 
+/**
+ * افزودن دسته‌ای سشن‌ها: به قطعه‌های کوچک تقسیم و پشت‌سرهم ارسال می‌شود.
+ * دلیل: بعضی لایه‌های میانی شبکه (پروکسی/فیلتر) POST با حجم بزرگ را بلاک می‌کنند
+ * و ۵۰۳ برمی‌گردانند؛ با قطعه‌های کوچک این مشکل رخ نمی‌دهد.
+ */
+const IMPORT_CHUNK_SIZE = 10;
+
+async function importAccountsInChunks(sessions) {
+  const lines = String(sessions || "")
+    .split(/[\r\n]+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!lines.length) throw new Error("هیچ سشنی وارد نشده است");
+
+  const created = [];
+  const skipped = [];
+  for (let i = 0; i < lines.length; i += IMPORT_CHUNK_SIZE) {
+    const chunk = lines.slice(i, i + IMPORT_CHUNK_SIZE).join("\n");
+    const res = await request("/accounts/import", { method: "POST", body: { sessions: chunk } });
+    if (res && res.created) created.push(...res.created);
+    if (res && res.skipped) skipped.push(...res.skipped);
+  }
+  return { created, skipped, validating: created.length };
+}
+
 export const api = {
   stats: () => request("/stats"),
 
@@ -56,7 +81,7 @@ export const api = {
   accounts: {
     list: () => request("/accounts"),
     create: (body) => request("/accounts", { method: "POST", body }),
-    import: (sessions) => request("/accounts/import", { method: "POST", body: { sessions } }),
+    import: importAccountsInChunks,
     checkAll: () => request("/accounts/check-all", { method: "POST" }),
     check: (id) => request(`/accounts/${id}/check`, { method: "POST" }),
     update: (id, body) => request(`/accounts/${id}`, { method: "PATCH", body }),
