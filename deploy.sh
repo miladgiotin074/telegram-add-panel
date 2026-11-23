@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 #
-# راه‌اندازی خودکار و پایدار «پنل ادد تلگرام» روی سرور لینوکسی
+# راه‌اندازی و به‌روزرسانی خودکار و پایدار «پنل ادد تلگرام» روی سرور لینوکسی
 #
-# این اسکریپت: پیش‌نیازها (Node.js/npm) را نصب می‌کند، وابستگی‌ها را نصب و
-# کلاینت را build می‌کند، و اپ را به‌صورت پایدار اجرا می‌کند
+# این اسکریپت: کد را از گیت به‌روز می‌کند، پیش‌نیازها (Node.js/npm) را نصب می‌کند،
+# وابستگی‌ها را نصب و کلاینت را build می‌کند، و اپ را به‌صورت پایدار اجرا/ری‌استارت می‌کند
 # (سرویس systemd با ری‌استارت خودکار و اجرا در بوت؛ در نبود systemd → nohup).
 #
-#   bash deploy.sh                # نصب پیش‌نیاز + بیلد + اجرای پایدار
+#   bash deploy.sh                # به‌روزرسانی + نصب پیش‌نیاز + بیلد + اجرای پایدار
 #   bash deploy.sh --foreground   # اجرا در همین ترمینال (دیباگ؛ Ctrl+C برای خروج)
 #   bash deploy.sh --service      # اجبار به حالت سرویس systemd
 #   bash deploy.sh --nohup        # اجبار به حالت پس‌زمینه (بدون systemd)
-#   bash deploy.sh --no-build     # رد کردن نصب/بیلد (فقط اجرا یا ری‌استارت)
+#   bash deploy.sh --no-build     # رد کردن نصب/بیلد (به‌روزرسانی سریع سرور)
 #   bash deploy.sh --no-install   # رد کردن نصب پیش‌نیازها
+#   bash deploy.sh --no-pull      # رد کردن git pull (بدون به‌روزرسانی کد)
 #
 # متغیّرهای محیطی اختیاری:
 #   PORT      پورت سرور (پیش‌فرض 5000)
@@ -34,6 +35,7 @@ LOG_FILE="$LOG_DIR/app.log"
 MODE="auto"   # auto | foreground | service | nohup
 DO_INSTALL=1
 DO_BUILD=1
+DO_PULL=1
 
 log()  { printf '\033[1;36m[deploy]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[deploy]\033[0m %s\n' "$*"; }
@@ -41,14 +43,15 @@ err()  { printf '\033[1;31m[deploy]\033[0m %s\n' "$*" >&2; }
 
 usage() {
   cat <<'EOF'
-راه‌اندازی خودکار و پایدار «پنل ادد تلگرام»
+راه‌اندازی و به‌روزرسانی خودکار «پنل ادد تلگرام»
 
-  bash deploy.sh                نصب پیش‌نیاز + بیلد + اجرای پایدار
+  bash deploy.sh                به‌روزرسانی + نصب پیش‌نیاز + بیلد + اجرای پایدار
   bash deploy.sh --foreground   اجرا در همین ترمینال (دیباگ)
   bash deploy.sh --service      اجبار به حالت سرویس systemd
   bash deploy.sh --nohup        اجبار به حالت پس‌زمینه (بدون systemd)
-  bash deploy.sh --no-build     رد کردن نصب/بیلد (فقط اجرا یا ری‌استارت)
+  bash deploy.sh --no-build     رد کردن نصب/بیلد (به‌روزرسانی سریع سرور)
   bash deploy.sh --no-install   رد کردن نصب پیش‌نیازها
+  bash deploy.sh --no-pull      رد کردن git pull (بدون به‌روزرسانی کد)
 
 متغیّرهای محیطی: PORT (پیش‌فرض 5000)، DATA_DIR (پیش‌فرض server/data)
 EOF
@@ -62,6 +65,7 @@ for arg in "$@"; do
     --nohup)      MODE="nohup" ;;
     --no-build)   DO_BUILD=0 ;;
     --no-install) DO_INSTALL=0 ;;
+    --no-pull)    DO_PULL=0 ;;
     -h|--help)    usage ;;
     *) err "آرگومان ناشناخته: $arg"; exit 1 ;;
   esac
@@ -147,6 +151,28 @@ ensure_prereqs() {
     exit 1
   fi
   log "محیط: Node $(node --version) / npm $(npm --version)"
+}
+
+update_code() {
+  if [ "$DO_PULL" -eq 0 ]; then
+    warn "به‌روزرسانی کد رد شد (--no-pull)"
+    return
+  fi
+  if [ ! -d "$ROOT/.git" ]; then
+    warn "این پوشه ریپوی گیت نیست؛ مرحله‌ی به‌روزرسانی رد شد."
+    return
+  fi
+  if ! command -v git >/dev/null 2>&1; then
+    warn "git نصب نیست؛ مرحله‌ی به‌روزرسانی رد شد."
+    return
+  fi
+  log "دریافت آخرین تغییرات از گیت…"
+  # GIT_TERMINAL_PROMPT=0 تا در صورت نیاز به رمز، اسکریپت معلق نشود
+  if GIT_TERMINAL_PROMPT=0 git -C "$ROOT" pull --ff-only; then
+    log "کد با موفقیت به‌روزرسانی شد."
+  else
+    warn "git pull انجام نشد (شاید تغییر محلی یا دسترسی ندارید)؛ با کد فعلی ادامه می‌دهیم."
+  fi
 }
 
 build_app() {
@@ -242,6 +268,7 @@ if [ "$MODE" = "auto" ]; then
   fi
 fi
 
+update_code
 ensure_prereqs
 build_app
 
