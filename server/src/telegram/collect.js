@@ -139,6 +139,13 @@ export async function collectMessage({ accountId, client, msg, chat: chatArg }) 
       return { stored: false, reason: "bot" };
     }
 
+    // در صورت فعال بودن این گزینه، فقط کاربران دارای یوزرنیم ذخیره می‌شوند
+    // (ادد کردن هم از این پس با resolve کردن یوزرنیم انجام می‌شود و پایدارتر است)
+    if (db.settings.collectOnlyUsername && !sender?.username) {
+      reserved.delete(senderId);
+      return { stored: false, reason: "no-username" };
+    }
+
     // فقط کاربرانی که اخیراً آنلاین بوده‌اند
     if (!isRecentlyActive(sender, db.settings.recentActivityHours)) {
       reserved.delete(senderId);

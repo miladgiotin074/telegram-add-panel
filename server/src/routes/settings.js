@@ -14,6 +14,7 @@ function view(db) {
     maxLogs: s.maxLogs,
     shortFloodWaitSeconds: s.shortFloodWaitSeconds,
     recentActivityHours: s.recentActivityHours,
+    collectOnlyUsername: s.collectOnlyUsername === true,
     defaultSettings: { ...DEFAULT_ORDER_SETTINGS, ...(s.defaultSettings || {}) },
   };
 }
@@ -38,6 +39,9 @@ router.patch("/", (req, res) => {
   }
   if (body.recentActivityHours != null) {
     db.settings.recentActivityHours = Math.max(0, Number(body.recentActivityHours) || 0);
+  }
+  if (body.collectOnlyUsername != null) {
+    db.settings.collectOnlyUsername = body.collectOnlyUsername === true || body.collectOnlyUsername === "true";
   }
   if (body.defaultSettings != null) {
     db.settings.defaultSettings = { ...db.settings.defaultSettings, ...body.defaultSettings };

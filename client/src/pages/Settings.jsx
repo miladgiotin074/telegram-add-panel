@@ -11,6 +11,7 @@ const EMPTY = {
   maxLogs: 3000,
   shortFloodWaitSeconds: 60,
   recentActivityHours: 72,
+  collectOnlyUsername: false,
   defaultSettings: {
     batchSize: 1,
     maxPerAccount: 40,
@@ -55,6 +56,7 @@ export default function Settings() {
         maxLogs: Number(form.maxLogs),
         shortFloodWaitSeconds: Number(form.shortFloodWaitSeconds),
         recentActivityHours: Number(form.recentActivityHours),
+        collectOnlyUsername: Boolean(form.collectOnlyUsername),
         defaultSettings: {
           batchSize: Number(form.defaultSettings.batchSize),
           maxPerAccount: Number(form.defaultSettings.maxPerAccount),
@@ -208,6 +210,20 @@ export default function Settings() {
               onChange={(e) => setForm({ ...form, recentActivityHours: e.target.value })}
             />
           </Field>
+          <label className="flex items-start gap-2 text-sm text-slate-300 sm:col-span-2 sm:pt-6">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 accent-sky-500"
+              checked={form.collectOnlyUsername}
+              onChange={(e) => setForm({ ...form, collectOnlyUsername: e.target.checked })}
+            />
+            <span>
+              فقط کاربران دارای یوزرنیم ذخیره شوند
+              <span className="mt-0.5 block text-[11px] leading-5 text-slate-500">
+                کاربران بدون یوزرنیم ذخیره نمی‌شوند؛ در نتیجه ادد کردن هم با resolve کردن یوزرنیم انجام می‌شود.
+              </span>
+            </span>
+          </label>
         </div>
       </div>
 

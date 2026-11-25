@@ -37,5 +37,7 @@ export const DEFAULT_SETTINGS = {
   shortFloodWaitSeconds: 60,
   /** فقط کاربرانی جمع‌آوری شوند که «آخرین بازدید»شان حداکثر این تعداد ساعت پیش بوده (0 = بدون فیلتر) */
   recentActivityHours: 72,
+  /** فقط کاربران دارای یوزرنیم جمع‌آوری شوند (ادد کردن هم با resolve یوزرنیم انجام می‌شود) */
+  collectOnlyUsername: false,
   defaultSettings: { ...DEFAULT_ORDER_SETTINGS },
 };
