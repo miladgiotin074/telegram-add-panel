@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, subscribeEvents, formatDateTime, formatNumber } from "../api.js";
 import {
   AccountStatus,
@@ -27,6 +27,9 @@ export default function Accounts() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [importText, setImportText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [groups, setGroups] = useState(null);
+  const [showGroups, setShowGroups] = useState(false);
+  const [groupsBusy, setGroupsBusy] = useState(false);
 
   /** تعداد اکانت‌های غیرفعال (وضعیت «خطا» و «غیرفعال») برای دکمه‌ی حذف دسته‌جمعی */
   const inactiveCount = accounts.filter((a) => a.status === "error" || a.status === "disabled").length;
@@ -43,6 +46,7 @@ export default function Accounts() {
 
   useEffect(() => {
     load();
+    api.groups.get().then(setGroups).catch(() => {});
     const off = subscribeEvents((p) => {
       if (p.type === "account") {
         setAccounts((prev) => {
@@ -52,6 +56,7 @@ export default function Accounts() {
         });
       }
       if (p.type === "accountDeleted") setAccounts((prev) => prev.filter((a) => a.id !== p.data.id));
+      if (p.type === "ownedGroups") setGroups(p.data);
     });
     return off;
   }, []);
@@ -113,6 +118,45 @@ export default function Accounts() {
       await load();
     }, "اکانت‌های غیرفعال حذف شدند");
   };
+
+  /* -------------------- گروه‌های ساخته‌شده (owner) -------------------- */
+
+  const groupsScanning = groups?.status === "running";
+  const groupsLoading = groupsBusy || groupsScanning;
+
+  /** باز کردن پنجره‌ی گروه‌های ساخته‌شده؛ بدون accountId یعنی همه‌ی اکانت‌ها */
+  const openGroups = async (accountId) => {
+    setShowGroups(true);
+    if (groupsScanning) return; // یک عملیات در حال اجراست
+    setGroupsBusy(true);
+    try {
+      const snap = await api.groups.scan(accountId != null ? { accountId } : {});
+      setGroups(snap);
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      setGroupsBusy(false);
+    }
+  };
+
+  const stopGroups = async () => {
+    try {
+      setGroups(await api.groups.stop());
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  };
+
+  /** فهرست یک‌بعدی گروه‌های ساخته‌شده، مرتب از قدیمی‌ترین تاریخ ساخت */
+  const groupRows = useMemo(() => {
+    if (!groups?.results?.length) return [];
+    const rows = [];
+    for (const r of groups.results) {
+      for (const g of r.groups || []) rows.push({ ...g, accountName: r.accountName });
+    }
+    rows.sort((a, b) => (a.date || 0) - (b.date || 0));
+    return rows;
+  }, [groups]);
 
   /* --------------------------- ویزارد ورود با شماره --------------------------- */
 
@@ -210,6 +254,9 @@ export default function Accounts() {
           <button className="btn-ghost" onClick={removeInactive} disabled={busy || inactiveCount === 0}>
             حذف غیرفعال‌ها{inactiveCount ? ` (${inactiveCount})` : ""}
           </button>
+          <button className="btn-ghost" onClick={() => openGroups()} disabled={groupsBusy || accounts.length === 0}>
+            گروه‌های ساخته‌شده (همه)
+          </button>
           <button className="btn-ghost" onClick={() => setShowImport(true)}>
             افزودن دسته‌ای
           </button>
@@ -298,6 +345,9 @@ export default function Accounts() {
                       </button>
                       <button className="btn-ghost px-2 py-1 text-xs" onClick={() => act(() => api.accounts.check(a.id).then(load), "بررسی انجام شد")}>
                         بررسی
+                      </button>
+                      <button className="btn-ghost px-2 py-1 text-xs" onClick={() => openGroups(a.id)} disabled={groupsBusy}>
+                        گروه‌ها
                       </button>
                       <button
                         className="btn-ghost px-2 py-1 text-xs"
@@ -535,6 +585,105 @@ export default function Accounts() {
             </Field>
           </div>
         ) : null}
+      </Modal>
+
+      {/* گروه‌های ساخته‌شده (owner) */}
+      <Modal
+        open={showGroups}
+        title="گروه‌های ساخته‌شده (owner)"
+        width="max-w-4xl"
+        onClose={() => setShowGroups(false)}
+        footer={
+          <>
+            {groupsScanning ? (
+              <button className="btn-danger" onClick={stopGroups}>
+                توقف
+              </button>
+            ) : null}
+            <button className="btn-ghost" onClick={() => setShowGroups(false)}>
+              بستن
+            </button>
+          </>
+        }
+      >
+        {groupsScanning ? (
+          <div className="mb-3 flex items-center gap-2 text-sm text-slate-300">
+            <Spinner />
+            <span>
+              در حال جمع‌آوری… ({groups?.done || 0}/{groups?.total || 0})
+            </span>
+            {groups?.currentAccountId ? (
+              <span className="text-slate-500">
+                — {groups?.results?.find((r) => r.accountId === groups.currentAccountId)?.accountName}
+              </span>
+            ) : null}
+          </div>
+        ) : groups?.status && groups.status !== "idle" ? (
+          <p className="mb-3 text-[11px] text-slate-500">
+            {groupRows.length} گروه ساخته‌شده — مرتب از قدیمی‌ترین تاریخ ساخت
+            {groups.finishedAt ? ` — ${formatDateTime(groups.finishedAt)}` : ""}
+          </p>
+        ) : null}
+
+        {groups?.error ? <p className="mb-3 text-sm text-rose-300">{groups.error}</p> : null}
+
+        {groups?.results?.some((r) => r.status === "error") ? (
+          <div className="mb-3 space-y-1">
+            {groups.results
+              .filter((r) => r.status === "error")
+              .map((r) => (
+                <p key={r.accountId} className="text-[11px] text-rose-300">
+                  «{r.accountName}»: {r.error}
+                </p>
+              ))}
+          </div>
+        ) : null}
+
+        {groupRows.length === 0 ? (
+          <Empty text={groupsLoading ? "در حال جمع‌آوری…" : "گروه ساخته‌شده‌ای یافت نشد"} />
+        ) : (
+          <div className="max-h-[60vh] overflow-y-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-panel-600">
+                  <th className="th">تاریخ ساخت</th>
+                  <th className="th">نام</th>
+                  <th className="th">نوع</th>
+                  <th className="th">شناسه</th>
+                  <th className="th">سازنده (اکانت)</th>
+                  <th className="th">اعضا</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groupRows.map((g) => (
+                  <tr key={`${g.accountName}-${g.id}`} className="border-b border-panel-700/60 last:border-0 hover:bg-panel-700/40">
+                    <td className="td text-slate-400">{formatDateTime(g.date)}</td>
+                    <td className="td">{g.title || "—"}</td>
+                    <td className="td">
+                      {g.broadcast ? <Badge tone="sky">کانال</Badge> : <Badge tone="violet">سوپرگروه</Badge>}
+                    </td>
+                    <td className="td">
+                      {g.username ? (
+                        <a
+                          className="text-sky-300 hover:underline"
+                          href={`https://t.me/${g.username}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          @{g.username}
+                        </a>
+                      ) : (
+                        <span className="font-mono text-[11px] text-slate-500">{g.id}</span>
+                      )}
+                    </td>
+                    <td className="td text-slate-400">{g.accountName}</td>
+                    <td className="td text-slate-400">{g.participantsCount ? formatNumber(g.participantsCount) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Modal>
     </div>
   );

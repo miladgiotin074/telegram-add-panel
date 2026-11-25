@@ -8,6 +8,7 @@ import { flushNow, getDb } from "./db.js";
 import accountsRouter from "./routes/accounts.js";
 import loginRouter from "./routes/login.js";
 import ordersRouter from "./routes/orders.js";
+import groupsRouter from "./routes/groups.js";
 import scanRouter from "./routes/scan.js";
 import sendersRouter from "./routes/senders.js";
 import settingsRouter from "./routes/settings.js";
@@ -73,6 +74,7 @@ app.get("/api/health", (req, res) => {
 app.use("/api/accounts/login", loginRouter);
 app.use("/api/accounts", accountsRouter);
 app.use("/api/orders", ordersRouter);
+app.use("/api/groups", groupsRouter);
 app.use("/api/scan", scanRouter);
 app.use("/api/senders", sendersRouter);
 app.use("/api/settings", settingsRouter);

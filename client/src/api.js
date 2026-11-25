@@ -111,6 +111,12 @@ export const api = {
     stop: (id) => request(`/scan/${id}/stop`, { method: "POST" }),
   },
 
+  groups: {
+    get: () => request("/groups"),
+    scan: (body) => request("/groups/scan", { method: "POST", body }),
+    stop: () => request("/groups/stop", { method: "POST" }),
+  },
+
   orders: {
     list: () => request("/orders"),
     create: (body) => request("/orders", { method: "POST", body }),
