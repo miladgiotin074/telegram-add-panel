@@ -152,7 +152,7 @@ export default function Accounts() {
     if (!groups?.results?.length) return [];
     const rows = [];
     for (const r of groups.results) {
-      for (const g of r.groups || []) rows.push({ ...g, accountName: r.accountName });
+      for (const g of r.groups || []) rows.push({ ...g, accountName: r.accountName, has2FA: r.has2FA });
     }
     rows.sort((a, b) => (a.date || 0) - (b.date || 0));
     return rows;
@@ -651,6 +651,7 @@ export default function Accounts() {
                   <th className="th">نوع</th>
                   <th className="th">شناسه</th>
                   <th className="th">سازنده (اکانت)</th>
+                  <th className="th">تایید دو مرحله‌ای</th>
                   <th className="th">اعضا</th>
                 </tr>
               </thead>
@@ -660,7 +661,7 @@ export default function Accounts() {
                     <td className="td text-slate-400">{formatDateTime(g.date)}</td>
                     <td className="td">{g.title || "—"}</td>
                     <td className="td">
-                      {g.broadcast ? <Badge tone="sky">کانال</Badge> : <Badge tone="violet">سوپرگروه</Badge>}
+                      {g.kind === "supergroup" ? <Badge tone="violet">سوپرگروه</Badge> : <Badge tone="slate">گروه</Badge>}
                     </td>
                     <td className="td">
                       {g.username ? (
@@ -677,6 +678,15 @@ export default function Accounts() {
                       )}
                     </td>
                     <td className="td text-slate-400">{g.accountName}</td>
+                    <td className="td">
+                      {g.has2FA === true ? (
+                        <Badge tone="emerald">فعال</Badge>
+                      ) : g.has2FA === false ? (
+                        <Badge tone="slate">غیرفعال</Badge>
+                      ) : (
+                        <span className="text-slate-600">—</span>
+                      )}
+                    </td>
                     <td className="td text-slate-400">{g.participantsCount ? formatNumber(g.participantsCount) : "—"}</td>
                   </tr>
                 ))}

@@ -1,13 +1,15 @@
+import { Api } from "teleproto";
 import { getDb, addLog } from "../db.js";
 import { getClient } from "./manager.js";
 import { emit } from "../events.js";
 
 /**
- * جمع‌آوری گروه‌ها/کانال‌هایی که یک سشن سازنده (creator/owner) آن‌هاست.
+ * جمع‌آوری گروه‌هایی که یک سشن سازنده (creator/owner) آن‌هاست.
  *
  * روش کار: با getDialogs همه‌ی گفتگوهای اکانت گرفته می‌شود و از میان آن‌ها
- * Channel هایی که فلگ creator دارند انتخاب می‌شوند (یعنی همین اکانت سازنده است).
- * فیلد date روی Channel تاریخ ساخت گروه است؛ خروجی از قدیمی‌ترین به جدیدترین مرتب می‌شود.
+ * فقط سوپرگروه‌ها (Channel با megagroup) و گروه‌های ساده (Chat) که فلگ creator
+ * دارند انتخاب می‌شوند (یعنی همین اکانت سازنده است). کانال‌ها (broadcast) حذف می‌شوند.
+ * فیلد date تاریخ ساخت گروه است؛ خروجی از قدیمی‌ترین به جدیدترین مرتب می‌شود.
  */
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -71,14 +73,25 @@ async function fetchOwnedGroups(client, accountId) {
       const groups = [];
       for (const dialog of dialogs) {
         const entity = dialog.entity;
-        if (!entity || entity.className !== "Channel" || !entity.creator) continue;
+        if (!entity || !entity.creator) continue;
+
+        // فقط سوپرگروه (Channel با megagroup) و گروه ساده (Chat) — کانال‌ها رد می‌شوند
+        let kind;
+        if (entity.className === "Channel") {
+          if (!entity.megagroup) continue; // کانال (broadcast)
+          kind = "supergroup";
+        } else if (entity.className === "Chat") {
+          kind = "group";
+        } else {
+          continue;
+        }
+
         groups.push({
           id: String(entity.id),
           title: entity.title || dialog.title || "",
           username: entity.username || null,
           date: entity.date ? Number(entity.date) * 1000 : null,
-          megagroup: Boolean(entity.megagroup),
-          broadcast: Boolean(entity.broadcast),
+          kind,
           participantsCount: entity.participantsCount || 0,
         });
       }
@@ -97,6 +110,12 @@ async function fetchOwnedGroups(client, accountId) {
   }
 }
 
+/** آیا برای این اکانت تایید دو مرحله‌ای (رمز ابری) فعال است؟ */
+async function fetchHas2FA(client) {
+  const pwd = await client.invoke(new Api.account.GetPassword());
+  return Boolean(pwd?.hasPassword);
+}
+
 async function runJob(job, accounts) {
   job.status = "running";
   publish(job);
@@ -111,12 +130,23 @@ async function runJob(job, accounts) {
       publish(job);
 
       try {
-        const groups = await withTimeout(
-          getClient(account).then((client) => fetchOwnedGroups(client, account.id)),
+        const { groups, has2FA } = await withTimeout(
+          (async () => {
+            const client = await getClient(account);
+            const list = await fetchOwnedGroups(client, account.id);
+            let twoFA = null;
+            try {
+              twoFA = await fetchHas2FA(client);
+            } catch {
+              /* اگر وضعیت تایید دو مرحله‌ای قابل خواندن نبود، نامشخص می‌ماند */
+            }
+            return { groups: list, has2FA: twoFA };
+          })(),
           PER_ACCOUNT_TIMEOUT_MS,
           "مهلت دریافت لیست گروه‌ها به پایان رسید",
         );
         entry.groups = groups;
+        entry.has2FA = has2FA;
         entry.status = "done";
         addLog({
           accountId: account.id,
@@ -187,6 +217,7 @@ export function startOwnedGroups({ accountId } = {}) {
       accountName: a.name,
       status: "pending",
       error: null,
+      has2FA: null,
       groups: [],
     })),
     startedAt: Date.now(),
